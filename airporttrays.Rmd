@@ -1,0 +1,276 @@
+---
+title: "Modelling infectious disease transmission potential as a function of human behaviour"
+author: "Caroline E. Walters, Maria Bekker-Nielsen Dunbar, Dale Weston, Ian Hall"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+# Background material
+
+Load ggplot for plotting and a simulator function to compare with theory.
+
+```{r setup}
+library(ggplot2)
+
+#####tau leap tray simulation
+sis_tray_sim=function(dt=0.1,MaxTime=10000,N0=400,T0=0,probtrans=1/15, 
+                      people=20000, usebefore=0, useafter=0, prev=1/100,recrate=1,plt=T)
+{
+  # definitions
+  t=dt*(0:MaxTime)
+  TC=T0
+  cases <- rbinom(length(t),prob=prev*dt, size=people)
+  firstdeconfail <- rbinom(length(t),prob=1-usebefore, size=cases)
+  trayspercustomer <- 2
+  
+  # loop over time
+  for (i in 2:(MaxTime+1)) 
+  {
+    R1=probtrans*firstdeconfail[i-1]*(1-TC[i-1]/N0)  #transmission rate
+    R2=recrate*TC[i-1]*dt  # recovery rate
+    
+    dmc=rpois(1,R1)
+    dmr=rpois(1,R2)
+    
+    if(dmc>N0-TC[i-1]) dmc=N0-TC[i-1]
+    if(dmr>TC[i-1]) dmr=TC[i-1]
+    
+    TC[i]=TC[i-1]+dmc-dmr
+  }
+  alpha <- probtrans*TC/TraysperLane*trayspercustomer
+ # DeltaP <- rbinom(n=length(TC),prob=1-prev, size=alpha)
+  ss <- (1-usebefore)*probtrans*prev*people/((1-usebefore)*probtrans*prev*people+N0*recrate)
+
+  if(plt==T){
+    # plot stochastic result and deterministic steady state
+    plot(TC/N0~t,type="l",ylim=c(0,3*ss),ylab="Proportion",xlab="Time (days)",
+         main=paste("Prop. Contaminated Trays, ", round(ss,4), sep=''))
+    abline(h=ss, col=2)
+    abline(h=mean(TC)/N0/dt, col=3)
+  }
+
+  # curate output values
+  seconddeconfail <- rbinom(length(t),prob=1-useafter, size=firstdeconfail)
+  newcase <- rbinom(length(t),prob=(1-useafter)*(1-prev)*alpha*dt, size=people)
+  reinfcase <- rbinom(length(t),prob=(1-useafter)*alpha, size=cases-firstdeconfail)
+  
+  output<- data.frame(time=t,TC=TC, cases=cases, deconbefore=firstdeconfail, alpha=alpha, #DeltaP=DeltaP, 
+                      caseinspite=seconddeconfail, newcasefromtray = newcase, reinfcase=reinfcase)
+
+    output
+}
+
+```
+
+# Worked Example 
+
+If there are 40 trays per queue and 10 queues at luggage
+screening then there are 400 trays in use each day. For 20,000 passengers per
+day, each tray is touched by 50 people, so $c = 50$ and we assume each user touches $m=2$ trays. We also allow the virus to
+remain viable on the tray surface for 1 day ($\delta = 1$) and choose $\beta = \gamma = 1/15$.
+
+Declare this parameter choices:
+```{r diseaseparas}
+Num_of_trays <- 400
+Customersperday <- 20*10^3
+Lanes <- 10
+TraysperLane <- Num_of_trays/Lanes
+trayspercustomer <- 2
+contactrate <- Customersperday/Num_of_trays #(per tray)
+
+prevalence <- 0.01 
+probtransmissionpercontact <- 1/15 # beta=gamma, same either direction
+transmission <- probtransmissionpercontact*contactrate*prevalence
+
+recov <- 1
+  
+probtraycontaminated <- transmission/(transmission+recov)
+```
+
+Having declared values we simulate and check steady state is reasonable proxy. 
+```{r traycontam}
+delt <- 0.1
+contamtray <- sis_tray_sim(dt=delt, N0=TraysperLane, probtrans=probtransmissionpercontact, people=Customersperday/Lanes, prev=prevalence, recrate=recov)
+```
+and after plotting check numerics 
+```{r modcomp}
+c(mean(contamtray$TC)/TraysperLane, mean(contamtray$caseinspite)/delt/Customersperday*Lanes, mean(contamtray$newcasefromtray)/delt/Customersperday*Lanes, mean(contamtray$reinfcase)/delt/Customersperday*Lanes)
+
+c(probtraycontaminated, prevalence, (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated) 
+```
+
+## Introducing hand hygiene
+```{r traycontamint}
+delt <- 0.1
+use <- 0.5
+contamtray <- sis_tray_sim(dt=delt, N0=TraysperLane, probtrans=probtransmissionpercontact, usebefore=use, useafter = use, people=Customersperday/Lanes, prev=prevalence, recrate=recov)
+```
+
+
+```{r modcompint}
+c(mean(contamtray$TC)/TraysperLane, mean(contamtray$caseinspite)/delt/Customersperday*Lanes, mean(contamtray$newcasefromtray)/delt/Customersperday*Lanes, mean(contamtray$reinfcase)/delt/Customersperday*Lanes)
+
+probtraycontaminated <- (1-use)*transmission/((1-use)*transmission+recov)
+
+c(probtraycontaminated, (1-use)*(1-use)*prevalence, (1-use)*(1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated,(1-use)*(use*prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated) 
+```
+# Testing model with random hand hygiene choice at both locations
+
+```{r location}
+nsim<- 1000
+
+probtraycontaminated <- transmission/(transmission+recov)
+Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
+
+PC00 <- prevalence + Deltaprev
+eta <- prevalence/PC00*(1-trayspercustomer*probtransmissionpercontact)
+
+RandomUptake <- data.frame(useprior = runif(nsim, 0,1),
+                            usepost = runif(nsim, 0,1))
+
+RandomUptake$PCsame <- (1-RandomUptake$useprior)*(1-RandomUptake$useprior)*(1-probtraycontaminated*RandomUptake$useprior*eta)*PC00/(1-probtraycontaminated*RandomUptake$useprior)
+# equation 4 but with rho=omega
+
+RandomUptake$DeltaPCsame <- (1-RandomUptake$useprior)*(1-probtraycontaminated*RandomUptake$useprior*eta)/(1-probtraycontaminated*RandomUptake$useprior)-(1-RandomUptake$useprior)
+
+plot((RandomUptake$useprior), RandomUptake$DeltaPCsame)
+
+RandomUptake$PC <- (1-RandomUptake$useprior)*(1-RandomUptake$usepost)*(1-probtraycontaminated*RandomUptake$useprior*eta)*PC00/(1-probtraycontaminated*RandomUptake$useprior)
+# equation 4
+
+RandomUptake$DeltaPC <- (1-RandomUptake$useprior)*(1-probtraycontaminated*RandomUptake$useprior*eta)/(1-probtraycontaminated*RandomUptake$useprior)-(1-RandomUptake$usepost)
+# equation 5
+
+RandomUptake$DeltaPCwq8 <- RandomUptake$usepost-RandomUptake$useprior+
+  RandomUptake$useprior*probtraycontaminated*(1-eta)*(1-RandomUptake$useprior)/(1-probtraycontaminated*RandomUptake$useprior)
+# equation 8
+
+plot((RandomUptake$useprior), RandomUptake$DeltaPC)
+
+plot((RandomUptake$useprior[which(RandomUptake$useprior>RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior>RandomUptake$usepost)])
+plot((RandomUptake$useprior[which(RandomUptake$useprior<RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior<RandomUptake$usepost)])
+
+```
+
+# Hand hygiene with chance of adhernece increasing with threat
+
+```{r increasingthreat}
+nsim<- 1000
+
+probtraycontaminated <- transmission/(transmission+recov)
+Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
+
+PC00 <- prevalence + Deltaprev
+eta <- prevalence/PC00*(1-trayspercustomer*probtransmissionpercontact)
+
+Uptake <- data.frame(threat = runif(nsim, 0,1),
+                            efficacy = runif(nsim, 0,1))
+Uptake$Inc <- runif(nsim,1, 1/Uptake$threat)
+
+Uptake$useprior <- Uptake$efficacy*Uptake$threat
+Uptake$usepost <- Uptake$Inc*Uptake$threat*Uptake$efficacy
+  
+Uptake$PC <- (1-Uptake$useprior)*(1-Uptake$usepost)*(1-probtraycontaminated*Uptake$useprior*eta)*PC00/(1-probtraycontaminated*Uptake$useprior)
+# equation 4
+
+Uptake$DeltaPC <- (1-Uptake$useprior)*(1-probtraycontaminated*Uptake$useprior*eta)/(1-probtraycontaminated*Uptake$useprior)-(1-Uptake$usepost)
+# equation 5
+
+Uptake$DeltaPCwq8 <- Uptake$usepost-Uptake$useprior+
+  Uptake$useprior*probtraycontaminated*(1-eta)*(1-Uptake$useprior)/(1-probtraycontaminated*Uptake$useprior)
+# equation 8
+
+par(mfrow=c(2,2))
+plot(Uptake$usepost, Uptake$DeltaPC)
+plot(Uptake$useprior, Uptake$DeltaPC)
+plot(Uptake$efficacy, Uptake$DeltaPC)
+plot(Uptake$threat, Uptake$DeltaPC)
+
+
+```
+
+## Hand hygiene chance not increasing with threat.
+
+```{r nonincreasingthreat}
+
+#prevalence <- 0.001 
+
+DelPCcontour <- function(prevalence){
+nsim<- 100000
+contactrate <- 50 #(per tray)
+probtransmissionpercontact <- 1/15 # beta=gamma, same either direction
+transmission <- probtransmissionpercontact*contactrate*prevalence
+
+probtraycontaminated <- transmission/(transmission+recov)
+Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
+
+PC00 <- prevalence + Deltaprev
+eta <- prevalence/PC00*(1-trayspercustomer*probtransmissionpercontact)
+
+Uptake <- data.frame(threat = rep(c(0.001, seq(0.1,1,0.1)),11), #runif(nsim, 0,1),
+                            efficacy = sort(rep(c(0.001,seq(0.1,1,0.1)),11))) #runif(nsim, 0,1))
+Uptake$Inc <- runif(length(Uptake$threat),1, 1/Uptake$threat)
+
+Uptake$useprior <- Uptake$efficacy*Uptake$threat*(Uptake$efficacy+1-Uptake$threat)
+Uptake$usepost <- Uptake$Inc*Uptake$threat*Uptake$efficacy*(Uptake$efficacy+1-Uptake$Inc*Uptake$threat)
+  
+Uptake$PC <- (1-Uptake$useprior)*(1-Uptake$usepost)*(1-probtraycontaminated*Uptake$useprior*eta)*PC00/(1-probtraycontaminated*Uptake$useprior)
+# equation 4
+
+Uptake$DeltaPC <- (1-Uptake$useprior)*(1-probtraycontaminated*Uptake$useprior*eta)/(1-probtraycontaminated*Uptake$useprior)-(1-Uptake$usepost)
+# equation 5
+
+Uptake$DeltaPCwq8 <- Uptake$usepost-Uptake$useprior+
+  Uptake$useprior*probtraycontaminated*(1-eta)*(1-Uptake$useprior)/(1-probtraycontaminated*Uptake$useprior)
+# equation 8
+
+ggplot(data=Uptake)+
+     geom_contour_filled(mapping=aes(x=threat, y=efficacy, z=DeltaPC))+
+     geom_abline(intercept=0, slope=1, color='white', lwd=2)
+}
+
+```
+
+### Changing prevalence
+```{r cprev}
+DelPCcontour(0.9)
+DelPCcontour(0.5)
+DelPCcontour(0.1)
+DelPCcontour(0.01)
+DelPCcontour(0.001)
+DelPCcontour(0.0001)
+
+```
+
+### Extreme prevalence trade off figure
+```{r hprev}
+prevalence <- 0.5
+
+contactrate <- 50 #(per tray)
+probtransmissionpercontact <- 1/15 # beta=gamma, same either direction
+transmission <- probtransmissionpercontact*contactrate*prevalence
+
+probtraycontaminated <- transmission/(transmission+recov)
+Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
+
+PC00 <- prevalence + Deltaprev
+eta <- prevalence/PC00*(1-trayspercustomer*probtransmissionpercontact)
+
+comp <- data.frame(eps=rep(seq(0,1,0.01), 101))
+comp$tau <-  sort(comp$eps)
+comp$rhoincrease <- comp$tau*comp$eps
+comp$rhononincrease <- comp$rhoincrease*(1 - comp$tau+comp$eps)
+comp$theta <- 1-(1-eta)*probtraycontaminated*(1-comp$rhononincrease)/(1-probtraycontaminated*comp$rhononincrease)
+comp$critarea <- comp$eps - comp$rhononincrease*comp$theta/comp$eps
+ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(x=eps, y=tau, z=rhoincrease))
+ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(x=eps, y=tau, z=rhononincrease))
+ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(x=eps, y=tau, z=theta))
+ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(x=eps, y=tau, z=critarea))+
+     geom_abline(intercept=0, slope=1, color='white', lwd=2)
+```
+
