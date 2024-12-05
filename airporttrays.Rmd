@@ -136,7 +136,7 @@ c(probtraycontaminated, (1-use)*(1-use)*prevalence, (1-use)*(1-prevalence)*trays
 ```
 So use of sanitiser has an effect.
 
-# Testing model with random hand hygiene choice at both locations
+# Testing model with random hand hygiene choice at both locations (section 2 of [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1))
 
 We now simulate the model 1000 times with probability of an individual using the sanitiser randomly drawn before and after contact with trays.
 ```{r location}
@@ -180,11 +180,11 @@ ggplot(data=RandomUptake)+
 
 ```
 If $\delta P_C > 0$ then it is always optimal to place hand sanitiser gel after luggage
-screening to minimise the probability of contamination. This graph shows that this condition is met provided the probability of use is greater after contact is made ($\rho<\omega$). This is entirely predictable but suggests that we now need to think about the factors that impact adherence before and after and how they might be modelled.
+screening to minimise the probability of contamination. This graph shows that this condition is met provided the probability of use is greater after contact is made ($\rho<\omega$). This is entirely predictable *a priori* but suggests that we now need to think about the factors that impact adherence before and after and how they might be modelled.
 
-# Hand hygiene with chance of adherenece increasing with threat
+# Hand hygiene with chance of adherenece increasing with threat (Section 3.1 of [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1))
 
-Here we consider adherence increasing with threat and so define a efficacy of intervention and a percevied threat. Using the tray boosts the threat perception and so the probability of uptake of intervention is always greater after touching trays.
+Here we consider adherence increasing with threat and so define a efficacy of intervention and a perceived threat. Using the tray boosts the threat perception and so the probability of uptake of intervention is always greater after touching trays.
 ```{r increasingthreat}
 nsim<- 1000
 
@@ -221,30 +221,31 @@ grid.arrange(p1, p2, p3, p4, ncol=2)
 ```
 These 4 plots, all showing $\Delta P_C$ on $y$-axis, critically all values are positive and so it is always better to place sanitiser after trays than before trays if resources are tight and cannot be placed in both locations in this situation.
 
-## Hand hygiene chance not increasing with threat.
+## Hand hygiene chance not increasing with threat. (Section 3.2 of [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1))
 
 Now we consider the situation that uptake is not increasing with threat and create a function to test sensitivity to prevalence
 
 ```{r nonincreasingthreat}
 
-#prevalence <- 0.001 
-
 DelPCcontour <- function(prevalence){
-nsim<- 100000
 contactrate <- 50 #(per tray)
 probtransmissionpercontact <- 1/15 # beta=gamma, same either direction
 transmission <- probtransmissionpercontact*contactrate*prevalence
 
+recov <- 1 # recovery rate
 probtraycontaminated <- transmission/(transmission+recov)
+trayspercustomer <- 2 # trays per customer
 Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
 
 PC00 <- prevalence + Deltaprev
 eta <- prevalence/PC00*(1-trayspercustomer*probtransmissionpercontact)
 
+# set up grid for threat and efficacy...
 Uptake <- data.frame(threat = rep(c(0.001, seq(0.1,1,0.1)),11), #runif(nsim, 0,1),
                             efficacy = sort(rep(c(0.001,seq(0.1,1,0.1)),11))) #runif(nsim, 0,1))
+# and change in perception after contact...
 Uptake$Inc <- runif(length(Uptake$threat),1, 1/Uptake$threat)
-
+# and calculate prior and post usage probability of deconamtination.
 Uptake$useprior <- Uptake$efficacy*Uptake$threat*(Uptake$efficacy+1-Uptake$threat)
 Uptake$usepost <- Uptake$Inc*Uptake$threat*Uptake$efficacy*(Uptake$efficacy+1-Uptake$Inc*Uptake$threat)
   
@@ -266,6 +267,8 @@ ggplot(data=Uptake)+
 ```
 
 ### Changing prevalence
+This function works out equation 5 from [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1) for given prevalence with the example disease and throughput parameters and specific choices of threat and efficacy. The value of $k$ is randomly sampled between $[1, 1/\tau]$ meaning the contour plots will change slightly each time the code is run.
+
 ```{r cprev}
 DelPCcontour(0.9)
 DelPCcontour(0.5)
@@ -278,17 +281,19 @@ DelPCcontour(0.0001)
 
 In all of these plots there is a dark blue region with negative values of $\Delta P_C$. These plots are stochastic but the region is larger at lower prevalence and when threat is high but efficacy is low.
 
-### Extreme prevalence trade off figure
+### Building to Prevalence trade off figure
 
-Here we recreate a version of Figure 4 in Walters et al.
+Here we recreate a version of Figure 4 in [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1)
 ```{r hprev}
-prevalence <- 0.5
+prevalence <- 0.1
 
 contactrate <- 50 #(per tray)
 probtransmissionpercontact <- 1/15 # beta=gamma, same either direction
 transmission <- probtransmissionpercontact*contactrate*prevalence
 
+recov <- 1 # recovery rate
 probtraycontaminated <- transmission/(transmission+recov)
+trayspercustomer <- 2 # trays per customer
 Deltaprev <- (1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated
 
 PC00 <- prevalence + Deltaprev
@@ -298,16 +303,33 @@ comp <- data.frame(eps=rep(seq(0,1,0.01), 101))
 comp$tau <-  sort(comp$eps)
 comp$rhoincrease <- comp$tau*comp$eps
 comp$rhononincrease <- comp$rhoincrease*(1 - comp$tau+comp$eps)
-comp$theta <- 1-(1-eta)*probtraycontaminated*(1-comp$rhononincrease)/(1-probtraycontaminated*comp$rhononincrease)
-comp$critarea <- comp$eps - comp$rhononincrease*comp$theta/comp$eps
-ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhoincrease))
-ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhononincrease))
-ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(y=eps, x=tau, z=theta))
-ggplot(data=comp)+
+comp$Phi <- 1-(1-eta)*probtraycontaminated*(1-comp$rhononincrease)/(1-probtraycontaminated*comp$rhononincrease)
+comp$critarea <- comp$eps - comp$tau*(1 - comp$tau+comp$eps)*comp$Phi
+
+p1 <- ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhoincrease))+
+  labs(title='Prob. of adherence \nbefore contact', x=TeX('$\\tau$'),y=TeX('$\\epsilon$'))
+p2 <- ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhononincrease))+
+  labs(title='Prob. of adherence \nafter contact', x=TeX('$\\tau$'),y=TeX('$\\epsilon$'))
+p3 <- ggplot(data=comp)+
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=Phi))+
+  labs(title=TeX('$\\Phi$'), x=TeX('$\\tau$'),y=TeX('$\\epsilon$'))
+p4 <- ggplot(data=comp)+
      geom_contour_filled(mapping=aes(y=eps, x=tau, z=critarea))+
-     geom_abline(intercept=0, slope=1, color='white', lwd=2)
+     geom_abline(intercept=0, slope=1, color='white', lwd=2)+
+  labs(title='Critical Region', x=TeX('$\\tau$'),y=TeX('$\\epsilon$'))
 ```
+
+Now plot results, firstly just plot back the probability of uptake of sansitiser given efficacy and threat.
+```{r finalplots}
+grid.arrange(p1, p2,  ncol=2)
+```
+The left hand plot shows the probability of hand sanitiser usage before contact and the right hand plot the probability of hand sanitiser after contact (with $k=1$ for purpose of this plot) for the threat and efficacy interaction assumed in paper.
+
+
+```{r finalplots}
+grid.arrange(p3, p4,  ncol=2)
+```
+Left hand plot shows the value of $\Phi$ from section 3.2 of paper whilst the right hand plot shows result of equation (12).
 
