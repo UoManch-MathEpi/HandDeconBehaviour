@@ -8,10 +8,16 @@ output: html_document
 
 # Background material
 
-Load ggplot for plotting and a simulator function to compare with theory.
+Mathematical modelling is an important public health tool for aiding the understanding of the spread of infectious diseases, and for quantifying the effects of behavioural interventions.  
+
+A mathematical model of fomite disease transmission via luggage trays at airport security screening in airport during an outbreak is used below.  An intervention is placed in the setting with users of airport offered hand sanitiser gel before and after contact with trays. We then apply a theoretical behaviour on individuals in line with the extended parallel processing model (EPPM).
+
+Firstly we load required packages (ggplot2) and define a function that simulates the interaction between the users and the trays. This uses the $\tau$-leap method for stochastic simulation and follows the modelling proposed in [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1).
 
 ```{r setup}
 library(ggplot2)
+library(latex2exp)
+library(gridExtra)
 
 #####tau leap tray simulation
 sis_tray_sim=function(dt=0.1,MaxTime=10000,N0=400,T0=0,probtrans=1/15, 
@@ -63,14 +69,25 @@ sis_tray_sim=function(dt=0.1,MaxTime=10000,N0=400,T0=0,probtrans=1/15,
 
 ```
 
+# Spoiler
+
+We find that changing model assumptions of human behaviour in line with the EPPM gives qualitatively different results on the optimal placement of hand sanitiser gels within an airport compared to the model with naive behavioural assumptions. 
+
+Specifically, that it is preferable to place hand sanitiser gels after luggage screening in most scenarios, however in situations where individuals perceive high threat and low efficacy this strategy may need to be reviewed. 
+
 # Worked Example 
 
-If there are 40 trays per queue and 10 queues at luggage
-screening then there are 400 trays in use each day. For 20,000 passengers per
-day, each tray is touched by 50 people, so $c = 50$ and we assume each user touches $m=2$ trays. We also allow the virus to
-remain viable on the tray surface for 1 day ($\delta = 1$) and choose $\beta = \gamma = 1/15$.
+Following example in  [Walters et al](https://www.medrxiv.org/content/10.1101/2021.07.16.21260521v1) we assume the following (illustrative of values used in real world airport)
 
-Declare this parameter choices:
+- There are 40 trays per queue and 10 queues at luggage screening so that there are 400 trays in use each day . 
+- There are 20,000 passengers per day, so each tray is touched by 50 people ($c=50$)
+- We assume each user touches 2 trays ($m=2$)
+- We also allow the virus to remain viable on the tray surface for 1 day ($\delta = 1$) 
+- We assume transmission is equal from person to tray as from tray to person so set $\beta = \gamma$
+- We assume prevalence is 1%. 
+
+
+Declare these parameter choices:
 ```{r diseaseparas}
 Num_of_trays <- 400
 Customersperday <- 20*10^3
@@ -101,12 +118,14 @@ c(probtraycontaminated, prevalence, (1-prevalence)*trayspercustomer*probtransmis
 ```
 
 ## Introducing hand hygiene
+
+Now simply assume 50% of users use sanitiser before and after. 
+
 ```{r traycontamint}
 delt <- 0.1
 use <- 0.5
 contamtray <- sis_tray_sim(dt=delt, N0=TraysperLane, probtrans=probtransmissionpercontact, usebefore=use, useafter = use, people=Customersperday/Lanes, prev=prevalence, recrate=recov)
 ```
-
 
 ```{r modcompint}
 c(mean(contamtray$TC)/TraysperLane, mean(contamtray$caseinspite)/delt/Customersperday*Lanes, mean(contamtray$newcasefromtray)/delt/Customersperday*Lanes, mean(contamtray$reinfcase)/delt/Customersperday*Lanes)
@@ -115,8 +134,11 @@ probtraycontaminated <- (1-use)*transmission/((1-use)*transmission+recov)
 
 c(probtraycontaminated, (1-use)*(1-use)*prevalence, (1-use)*(1-prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated,(1-use)*(use*prevalence)*trayspercustomer*probtransmissionpercontact*probtraycontaminated) 
 ```
+So use of sanitiser has an effect.
+
 # Testing model with random hand hygiene choice at both locations
 
+We now simulate the model 1000 times with probability of an individual using the sanitiser randomly drawn before and after contact with trays.
 ```{r location}
 nsim<- 1000
 
@@ -134,8 +156,11 @@ RandomUptake$PCsame <- (1-RandomUptake$useprior)*(1-RandomUptake$useprior)*(1-pr
 
 RandomUptake$DeltaPCsame <- (1-RandomUptake$useprior)*(1-probtraycontaminated*RandomUptake$useprior*eta)/(1-probtraycontaminated*RandomUptake$useprior)-(1-RandomUptake$useprior)
 
-plot((RandomUptake$useprior), RandomUptake$DeltaPCsame)
+ggplot(data=RandomUptake)+
+  geom_line(mapping=aes(x=useprior, y=DeltaPCsame))+xlab('Probability of use')+ylab('Probability of contamination')+
+  labs(title='Illustration with same probability of use before and after (rho=omega)')
 
+# Now allow independent sample of uptake before and after (still random no EPPM)
 RandomUptake$PC <- (1-RandomUptake$useprior)*(1-RandomUptake$usepost)*(1-probtraycontaminated*RandomUptake$useprior*eta)*PC00/(1-probtraycontaminated*RandomUptake$useprior)
 # equation 4
 
@@ -146,15 +171,20 @@ RandomUptake$DeltaPCwq8 <- RandomUptake$usepost-RandomUptake$useprior+
   RandomUptake$useprior*probtraycontaminated*(1-eta)*(1-RandomUptake$useprior)/(1-probtraycontaminated*RandomUptake$useprior)
 # equation 8
 
-plot((RandomUptake$useprior), RandomUptake$DeltaPC)
+ggplot(data=RandomUptake)+
+  geom_point(mapping=aes(x=useprior, y=DeltaPC))+xlab('Probability of use prior to contact')+ylab(TeX('$\\Delta P_C $'))+
+  labs(title='Relative change in contamination with random different probability of use \nboth before and after (eqn 5 of Walters et al)')
 
-plot((RandomUptake$useprior[which(RandomUptake$useprior>RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior>RandomUptake$usepost)])
-plot((RandomUptake$useprior[which(RandomUptake$useprior<RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior<RandomUptake$usepost)])
+#plot((RandomUptake$useprior[which(RandomUptake$useprior>RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior>RandomUptake$usepost)])
+#plot((RandomUptake$useprior[which(RandomUptake$useprior<RandomUptake$usepost)]), RandomUptake$DeltaPC[which(RandomUptake$useprior<RandomUptake$usepost)])
 
 ```
+If $\delta P_C > 0$ then it is always optimal to place hand sanitiser gel after luggage
+screening to minimise the probability of contamination. This graph shows that this condition is met provided the probability of use is greater after contact is made ($\rho<\omega$). This is entirely predictable but suggests that we now need to think about the factors that impact adherence before and after and how they might be modelled.
 
-# Hand hygiene with chance of adhernece increasing with threat
+# Hand hygiene with chance of adherenece increasing with threat
 
+Here we consider adherence increasing with threat and so define a efficacy of intervention and a percevied threat. Using the tray boosts the threat perception and so the probability of uptake of intervention is always greater after touching trays.
 ```{r increasingthreat}
 nsim<- 1000
 
@@ -181,16 +211,19 @@ Uptake$DeltaPCwq8 <- Uptake$usepost-Uptake$useprior+
   Uptake$useprior*probtraycontaminated*(1-eta)*(1-Uptake$useprior)/(1-probtraycontaminated*Uptake$useprior)
 # equation 8
 
-par(mfrow=c(2,2))
-plot(Uptake$usepost, Uptake$DeltaPC)
-plot(Uptake$useprior, Uptake$DeltaPC)
-plot(Uptake$efficacy, Uptake$DeltaPC)
-plot(Uptake$threat, Uptake$DeltaPC)
+p1 <- ggplot(data=Uptake)+geom_point(mapping = aes(x=usepost, y=DeltaPC))
+p2 <- ggplot(data=Uptake)+geom_point(mapping = aes(x=useprior, y=DeltaPC))
+p3 <- ggplot(data=Uptake)+geom_point(mapping = aes(x=efficacy, y=DeltaPC))
+p4 <- ggplot(data=Uptake)+geom_point(mapping = aes(x=threat, y=DeltaPC))
 
+grid.arrange(p1, p2, p3, p4, ncol=2)
 
 ```
+These 4 plots, all showing $\Delta P_C$ on $y$-axis, critically all values are positive and so it is always better to place sanitiser after trays than before trays if resources are tight and cannot be placed in both locations in this situation.
 
 ## Hand hygiene chance not increasing with threat.
+
+Now we consider the situation that uptake is not increasing with threat and create a function to test sensitivity to prevalence
 
 ```{r nonincreasingthreat}
 
@@ -243,7 +276,11 @@ DelPCcontour(0.0001)
 
 ```
 
+In all of these plots there is a dark blue region with negative values of $\Delta P_C$. These plots are stochastic but the region is larger at lower prevalence and when threat is high but efficacy is low.
+
 ### Extreme prevalence trade off figure
+
+Here we recreate a version of Figure 4 in Walters et al.
 ```{r hprev}
 prevalence <- 0.5
 
@@ -264,13 +301,13 @@ comp$rhononincrease <- comp$rhoincrease*(1 - comp$tau+comp$eps)
 comp$theta <- 1-(1-eta)*probtraycontaminated*(1-comp$rhononincrease)/(1-probtraycontaminated*comp$rhononincrease)
 comp$critarea <- comp$eps - comp$rhononincrease*comp$theta/comp$eps
 ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(x=eps, y=tau, z=rhoincrease))
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhoincrease))
 ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(x=eps, y=tau, z=rhononincrease))
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=rhononincrease))
 ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(x=eps, y=tau, z=theta))
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=theta))
 ggplot(data=comp)+
-     geom_contour_filled(mapping=aes(x=eps, y=tau, z=critarea))+
+     geom_contour_filled(mapping=aes(y=eps, x=tau, z=critarea))+
      geom_abline(intercept=0, slope=1, color='white', lwd=2)
 ```
 
