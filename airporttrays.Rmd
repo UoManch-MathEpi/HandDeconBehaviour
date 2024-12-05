@@ -1,8 +1,11 @@
 ---
-title: "Modelling infectious disease transmission potential as a function of human behaviour"
+title: Modelling infectious disease transmission potential as a function of human
+  behaviour
 author: "Caroline E. Walters, Maria Bekker-Nielsen Dunbar, Dale Weston, Ian Hall"
 date: "`r Sys.Date()`"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 
@@ -325,11 +328,13 @@ Now plot results, firstly just plot back the probability of uptake of sansitiser
 ```{r finalplots}
 grid.arrange(p1, p2,  ncol=2)
 ```
+
 The left hand plot shows the probability of hand sanitiser usage before contact and the right hand plot the probability of hand sanitiser after contact (with $k=1$ for purpose of this plot) for the threat and efficacy interaction assumed in paper.
 
 
-```{r finalplots}
+```{r finalplots2}
 grid.arrange(p3, p4,  ncol=2)
 ```
-Left hand plot shows the value of $\Phi$ from section 3.2 of paper whilst the right hand plot shows result of equation (12).
+
+Left hand plot shows the value of $\Phi$ from section 3.2 of paper whilst the right hand plot shows result of equation (12). If the right hand plot shows a region with negative values this indicates parameter couplings where only placing sanitiser after is not effective.
 
